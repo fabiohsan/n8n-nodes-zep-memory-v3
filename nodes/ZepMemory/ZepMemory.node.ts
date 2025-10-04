@@ -29,15 +29,38 @@ class BaseChatMemoryWrapper {
 	}
 
 	async loadMemoryVariables(values: any) {
-		return await this.memory.loadMemoryVariables(values);
+		const startTime = Date.now();
+		const response = await this.memory.loadMemoryVariables(values);
+		const duration = Date.now() - startTime;
+		
+		// Logging seguro para visibilidade nos logs do Docker/console
+		console.log(`[Zep Memory v3] loadMemoryVariables completed in ${duration}ms`, {
+			hasHistory: !!response?.chat_history,
+			messageCount: response?.chat_history?.length || 0,
+		});
+		
+		return response;
 	}
 
 	async saveContext(inputValues: any, outputValues: any) {
-		return await this.memory.saveContext(inputValues, outputValues);
+		const startTime = Date.now();
+		const response = await this.memory.saveContext(inputValues, outputValues);
+		const duration = Date.now() - startTime;
+		
+		// Logging seguro para visibilidade nos logs do Docker/console
+		console.log(`[Zep Memory v3] saveContext completed in ${duration}ms`, {
+			input: inputValues?.input || 'N/A',
+			output: outputValues?.output || 'N/A',
+		});
+		
+		return response;
 	}
 
 	async clear() {
-		return await this.memory.clear();
+		console.log('[Zep Memory v3] Clearing memory');
+		const response = await this.memory.clear();
+		console.log('[Zep Memory v3] Memory cleared successfully');
+		return response;
 	}
 
 	get memoryKey() {

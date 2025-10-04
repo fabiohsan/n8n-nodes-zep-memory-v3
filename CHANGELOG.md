@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.3] - 2024-09-30
+
+### Added
+- **Enhanced Console Logging**: Added detailed performance logging for memory operations
+- **Operation Tracking**: Log execution time for loadMemoryVariables and saveContext
+- **Memory Statistics**: Log message count and history status for better debugging
+
+### Improved
+- **Debugging Experience**: Better visibility in Docker/console logs without UI complexity
+- **Performance Monitoring**: Track operation duration for optimization insights
+
+### Technical Details
+- Added safe console.log statements in BaseChatMemoryWrapper methods
+- Logs include timing, message counts, and operation status
+- Zero risk implementation - no breaking changes
+- Maintains full compatibility with v0.2.2
+
 ## [0.2.2] - 2024-09-30
 
 ### Changed

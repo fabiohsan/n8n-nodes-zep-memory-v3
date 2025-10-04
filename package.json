@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-zep-memory-v3",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "n8n community node for Zep v3 Memory - replaces discontinued official node",
   "keywords": [
     "n8n-community-node-package",
