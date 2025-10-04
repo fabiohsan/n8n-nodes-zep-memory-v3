@@ -1,0 +1,1 @@
+// This file is required by n8n to load the community node
