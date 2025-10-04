@@ -86,13 +86,13 @@ To migrate from the discontinued official node:
 
 This is a community-maintained node. For issues:
 
-1. Check the [GitHub Issues](https://github.com/your-username/n8n-nodes-zep-memory-v3/issues)
+1. Check the [GitHub Issues](https://github.com/fabiohsan/n8n-nodes-zep-memory-v3/issues)
 2. Create a new issue with detailed information
 3. Community support via n8n Discord
 
 ## License
 
-[MIT](https://github.com/your-username/n8n-nodes-zep-memory-v3/blob/main/LICENSE.md)
+[MIT](https://github.com/fabiohsan/n8n-nodes-zep-memory-v3/blob/main/LICENSE.md)
 
 ## Resources
 

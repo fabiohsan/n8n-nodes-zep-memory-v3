@@ -12,14 +12,14 @@
     "conversation"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/seu-usuario/n8n-nodes-zep-memory-v3",
+  "homepage": "https://github.com/fabiohsan/n8n-nodes-zep-memory-v3",
   "author": {
-    "name": "Seu Nome",
-    "email": "seu-email@exemplo.com"
+    "name": "Fabio Henrique",
+    "email": "fabiohsan@users.noreply.github.com"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/seu-usuario/n8n-nodes-zep-memory-v3.git"
+    "url": "git+https://github.com/fabiohsan/n8n-nodes-zep-memory-v3.git"
   },
   "engines": {
     "node": ">=18.10",
