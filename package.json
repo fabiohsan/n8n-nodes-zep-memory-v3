@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-zep-memory-v3",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "n8n community node for Zep Cloud v3 Memory - AI Agent persistent memory with Context Block",
   "keywords": [
     "n8n-community-node-package",
