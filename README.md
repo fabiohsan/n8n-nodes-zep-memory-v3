@@ -1,101 +1,103 @@
 # n8n-nodes-zep-memory-v3
 
-![n8n.io - Workflow Automation](https://raw.githubusercontent.com/n8n-io/n8n/master/assets/n8n-logo.png)
+![Zep Memory v3 Banner](https://raw.githubusercontent.com/getzep/zep/main/assets/zep-logo-light.svg)
 
-Community node for **Zep Cloud v3** Memory - provides persistent memory for AI Agents with structured Context Block.
+[![npm version](https://img.shields.io/npm/v/n8n-nodes-zep-memory-v3?color=blue)](https://www.npmjs.com/package/n8n-nodes-zep-memory-v3)
+[![License](https://img.shields.io/npm/l/n8n-nodes-zep-memory-v3)](https://github.com/fabiohsan/n8n-nodes-zep-memory-v3/blob/main/LICENSE.md)
+[![n8n](https://img.shields.io/badge/n8n-community%20node-red)](https://n8n.io/integrations/community/nodes)
 
-> ⚠️ **v0.3.0 Breaking Change**: Open Source support has been removed. This version only supports Zep Cloud v3.
+> **Supercharge your AI Agents with Zep Cloud v3 Long-Term Memory.**
 
-## Features
+This community node integrates **Zep Cloud v3** directly into your n8n workflows, providing your AI Agents with intelligent, long-term memory that goes beyond simple chat history.
 
-- **Context Block**: Returns structured USER_SUMMARY + FACTS (not just chat history)
-- **Zep Cloud v3**: Uses native SDK for optimal performance
-- **Thread-based Memory**: Uses Zep v3 thread terminology
-- **Auto Thread Creation**: Automatically creates threads if they don't exist
-- **Error Mapping**: User-friendly error messages for common issues (401, 404, 429)
-- **AI Agent Integration**: Direct integration with n8n AI Agent nodes
+---
 
-## Installation
+## 🚀 Key Features
 
-1. Go to **Settings > Community Nodes**
-2. Select **Install**
-3. Enter `n8n-nodes-zep-memory-v3`
-4. Agree to the risks of using community nodes
-5. Select **Install**
+- **🧠 Intelligent Context Block**: Feeds your AI Agent with summarized user details (`USER_SUMMARY`) and extracted facts (`FACTS`), not just raw text.
+- **👀 Visual Execution Logs**: See exactly what's effectively being sent and received from Zep right in the n8n Execution sidebar.
+- **📉 Context Window Control**: Save costs and tokens by limiting the number of recent messages sent to the LLM (e.g., last 10), while relying on Zep's summary for long-term context.
+- **⚡ Zero-Config Threading**: Automatically handles thread creation and persistence based on your `threadId`.
+- **🛡️ Error Handling**: Built-in retry logic and friendly error messages for common API issues.
 
-After installation, restart n8n to see the node in the nodes panel.
+---
 
-## Configuration
+## 📦 Installation
 
-### Credentials
+1. Open your n8n instance.
+2. Go to **Settings > Community Nodes**.
+3. Select **Install**.
+4. Enter the package name:
+   ```bash
+   n8n-nodes-zep-memory-v3
+   ```
+5. Install and **restart n8n**.
 
-1. Create a [Zep Cloud account](https://app.getzep.com)
-2. Get your **API Key** from the dashboard
-3. In n8n, create new **Zep Cloud API** credentials
-4. Enter your **API Key**
+---
 
-### Node Configuration
+## 🛠️ Configuration
 
-- **Thread ID**: The unique identifier for the conversation thread
-  - Can use expressions like `{{ $json.threadId }}`
-  - Supports different input methods based on node version
+### 1. Prerequisites
+- A [Zep Cloud](https://app.getzep.com) account.
+- An **API Key** from your Zep Project Settings.
 
-## Usage
+### 2. Setup in n8n
+1. Create a **Zep Cloud API** credential in n8n and paste your API Key.
+2. Add the **Zep Memory v3** node to your workflow.
+3. Connect it **between** your Chat Trigger (or user input) and your AI Agent node.
 
-1. Add the **Zep Memory v3** node to your workflow
-2. Connect it between your **Chat Trigger** and **AI Agent** nodes
-3. Configure the **Thread ID** to identify unique conversations
-4. The node will automatically:
-   - Load Context Block (USER_SUMMARY + FACTS) for the AI Agent
-   - Save new messages after AI responses
-   - Create threads automatically if they don't exist
+| Parameter | Description | Recommended Value |
+|-----------|-------------|-------------------|
+| **Thread ID** | Unique identifier for the conversation session. | `{{ $json.sessionId }}` |
+| **User ID** | Unique identifier for the user (optional, defaults to Thread ID). | `{{ $json.userId }}` |
+| **Context Window** | Number of recent messages to inject as chat history. | `10` |
+| **Use Context Block** | Whether to inject Zep's summarized context (Facts/Summary). | `True` |
 
-### Example Workflow
+---
 
-```
-Chat Trigger → Zep Memory v3 → AI Agent → Response
-```
+## 📊 Visual Execution Feedback
 
-### Output Format
+Debug your memory flow like a pro. This node writes detailed logs to the n8n Execution Sidebar:
 
-The node returns:
+- **🔵 input**: Shows the parameters requesting memory (e.g., `loadMemoryVariables`).
+- **🟢 output**: Shows the exact payload returned to the AI Agent (Context string + Messages array).
+
+No more guessing what your AI "knows"!
+
+---
+
+## 🧩 Output Structure
+
+The node initializes the AI Agent's memory with an object containing:
 
 ```json
 {
-  "context": "<USER_SUMMARY>...</USER_SUMMARY><FACTS>...</FACTS>",
-  "messages": [/* last 6 messages */],
-  "chat_history": [/* all messages - backward compatibility */]
+  "context": "<USER_SUMMARY>User loves sci-fi...</USER_SUMMARY><FACTS>...</FACTS>",
+  "chat_history": [
+    {
+      "role": "user",
+      "content": "Tell me about space."
+    },
+    {
+      "role": "assistant",
+      "content": "Space is vast..."
+    }
+  ]
 }
 ```
 
-## Migration from v0.2.x
+---
 
-If you were using Zep Open Source, you need to migrate to Zep Cloud:
+## ⚠️ Migration Notice
 
-1. Create a [Zep Cloud account](https://app.getzep.com)
-2. Update your credentials to use only the API Key
-3. Your existing workflows will continue to work
+**For Open Source Users**: This node (v3+) is exclusively compatible with **Zep Cloud v3**. Support for self-hosted Zep Open Source has been discontinued to leverage the advanced features of the new v3 Cloud SDK.
 
-## Compatibility
+---
 
-- **n8n version**: 0.190.0 and above
-- **Node.js**: 18.10 and above
-- **Zep**: Cloud v3 only (Open Source no longer supported)
+## 🤝 Support & Contribution
 
-## Support
+Found a bug? Have a feature request?
+- [Open an Issue](https://github.com/fabiohsan/n8n-nodes-zep-memory-v3/issues) on GitHub.
+- Contributions are welcome! details in the repo.
 
-This is a community-maintained node. For issues:
-
-1. Check the [GitHub Issues](https://github.com/fabiohsan/n8n-nodes-zep-memory-v3/issues)
-2. Create a new issue with detailed information
-3. Community support via n8n Discord
-
-## License
-
-[MIT](https://github.com/fabiohsan/n8n-nodes-zep-memory-v3/blob/main/LICENSE.md)
-
-## Resources
-
-- [Zep Documentation](https://help.getzep.com)
-- [n8n community nodes documentation](https://docs.n8n.io/integrations/community-nodes/)
-- [n8n Documentation](https://docs.n8n.io)
+Copyright © 2025 Fabio Henrique. Released under the MIT License.
