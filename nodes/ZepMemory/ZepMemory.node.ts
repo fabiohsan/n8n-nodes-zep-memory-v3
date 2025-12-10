@@ -6,8 +6,8 @@ import {
 	NodeOperationError,
 } from 'n8n-workflow';
 
-// Zep Cloud SDK - use namespace import for compatibility
-import * as ZepCloud from '@getzep/zep-cloud';
+// Zep Cloud SDK - ZepClient is the main constructor
+import { ZepClient } from '@getzep/zep-cloud';
 
 
 /**
@@ -40,11 +40,13 @@ function mapError(error: any, node: any): NodeOperationError {
 class ZepMemoryWrapper {
 	private client: any; // ZepCloud.ZepClient
 	private threadId: string;
+	private userId: string;
 	private logger?: any;
 
-	constructor(client: any, threadId: string, logger?: any) {
+	constructor(client: any, threadId: string, userId: string, logger?: any) {
 		this.client = client;
 		this.threadId = threadId;
+		this.userId = userId || threadId; // Default to threadId if userId not provided
 		this.logger = logger;
 	}
 
@@ -62,41 +64,200 @@ class ZepMemoryWrapper {
 		this.log('debug', `Loading memory for thread: ${this.threadId}`);
 
 		try {
-			// Get user context (Context Block with USER_SUMMARY + FACTS)
-			const memory = await this.client.thread.getUserContext(this.threadId);
+			// First, ensure the thread exists
+			await this.ensureThreadExists();
 
-			// Get recent messages for chat_history compatibility
-			const thread = await this.client.thread.get(this.threadId);
-			const messages = thread.messages || [];
+			// Get user context
+			let contextBlock = '';
+			try {
+				// SDK Signature: getUserContext(threadId: string)
+				this.log('debug', `Calling getUserContext with string: ${this.threadId}`);
+				const memory = await this.client.thread.getUserContext(this.threadId);
+				contextBlock = memory?.context || '';
+			} catch (ctxError: any) {
+				this.log('debug', `getUserContext failed: ${ctxError.message}`);
+				contextBlock = '';
+			}
 
-			// Format messages for LangChain compatibility
-			const chatHistory = messages.map((msg: any) => ({
-				role: msg.role === 'human' ? 'user' : msg.role,
-				content: msg.content || '',
-				name: msg.name,
-			})).filter((m: any) => m.content.trim());
+			// Get recent messages
+			let chatHistory: any[] = [];
+			try {
+				// SDK Signature: get(threadId: string)
+				this.log('debug', `[DEBUG] Calling thread.get with string: ${this.threadId}`);
+				const thread = await this.client.thread.get(this.threadId);
+				const messages = thread?.messages || [];
 
-			this.log('debug', `Loaded ${chatHistory.length} messages from thread`);
+				// DEBUG A: RAW ZEP MESSAGES
+				this.log('info', '=== DEBUG: RAW ZEP MESSAGES ===');
+				this.log('info', `Total raw messages from Zep: ${messages.length}`);
+				messages.forEach((msg: any, idx: number) => {
+					this.log('info', `[RAW ${idx}] ${JSON.stringify({
+						role: msg.role,
+						contentPreview: (typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : typeof msg.content),
+						allKeys: Object.keys(msg),
+						hasAuthor: 'author' in msg,
+						author: msg.author ?? null
+					})}`);
+				});
+
+				// Define role mapping
+				const roleToType: Record<string, string> = {
+					'user': 'human',
+					'human': 'human',
+					'assistant': 'ai',
+					'ai': 'ai',
+					'system': 'system',
+					'tool': 'tool',
+					'function': 'function',
+				};
+
+				chatHistory = messages
+					.filter((msg: any) => {
+						// Filter: valid content
+						if (!msg || typeof msg.content !== 'string' || msg.content.trim() === '') {
+							this.log('debug', 'Filtering message: empty or invalid content');
+							return false;
+						}
+						const role = (msg.role || '').toString().toLowerCase();
+						if (!role) {
+							this.log('debug', 'Filtering message: no role defined');
+							return false;
+						}
+
+						// Filter tool and function messages (Strategy A)
+						if (['tool', 'function'].includes(role)) {
+							this.log('debug', `[DEBUG] Filtering tool message type: ${role}`);
+							return false;
+						}
+
+						// Filter system messages from history
+						if (role === 'system') {
+							this.log('debug', '[DEBUG] Filtering system message from history');
+							return false;
+						}
+
+						return true;
+					})
+					.map((msg: any) => {
+						const originalRole = (msg.role || 'user').toString().toLowerCase();
+						let mappedRole = roleToType[originalRole] ?? 'human';
+
+						if (!roleToType[originalRole]) {
+							this.log('info', `[WARN] Unknown role encountered: "${msg.role}", defaulting to 'human'`);
+						}
+
+						const message: any = {
+							role: mappedRole,
+							type: mappedRole,
+							content: (typeof msg.content === 'string') ? msg.content : (msg.content ?? ''),
+						};
+
+						// CRITICAL: ensure author compatible with executeBatch.ts
+						if (mappedRole === 'human') message.author = 'user';
+						else if (mappedRole === 'ai') message.author = 'assistant';
+						else message.author = mappedRole;
+
+						if (msg.name && typeof msg.name === 'string' && msg.name.trim()) {
+							message.name = msg.name;
+						}
+
+						if (msg.additional_kwargs && typeof msg.additional_kwargs === 'object' && Object.keys(msg.additional_kwargs).length) {
+							message.additional_kwargs = msg.additional_kwargs;
+						}
+
+						this.log('debug', `Mapped: ${originalRole} -> role=${mappedRole}, author=${message.author}`);
+						return message;
+					});
+
+				// DEBUG B: AFTER filter/map
+				this.log('info', '=== DEBUG: FINAL MAPPED MESSAGES ===');
+				this.log('info', `Total mapped messages: ${chatHistory.length}`);
+				chatHistory.forEach((msg, idx) => {
+					this.log('info', `[MAPPED ${idx}] ${JSON.stringify({
+						role: msg.role,
+						type: msg.type,
+						author: msg.author,
+						contentPreview: (typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : typeof msg.content),
+						allKeys: Object.keys(msg)
+					})}`);
+				});
+
+				// Validation (Defensive)
+				chatHistory = chatHistory.filter((msg, idx) => {
+					const hasRole = typeof msg.role === 'string' && msg.role.trim() !== '';
+					const hasType = typeof msg.type === 'string' && msg.type.trim() !== '';
+					const hasContent = msg.content !== undefined && msg.content !== null;
+					const hasAuthor = typeof msg.author === 'string' && msg.author.trim() !== '';
+
+					const isValid = hasRole && hasType && hasContent && hasAuthor;
+
+					if (!isValid) {
+						this.log('error', `[CRITICAL] Message ${idx} FAILED validation: ${JSON.stringify({
+							hasRole, hasType, hasContent, hasAuthor, message: msg
+						})}`);
+					}
+					return isValid;
+				});
+
+				this.log('info', `Final validated messages count: ${chatHistory.length}`);
+
+			} catch (getError: any) {
+				this.log('debug', `[DEBUG] thread.get failed: ${getError.message}`);
+				chatHistory = [];
+			}
+
+			// DEBUG C: RETURN STRUCTURE
+			this.log('info', '=== DEBUG: RETURN STRUCTURE ===');
+			this.log('info', `chat_history array length: ${chatHistory.length}`);
+			this.log('info', `First message structure: ${chatHistory.length > 0 ? JSON.stringify(chatHistory[0]) : 'empty'}`);
 
 			return {
-				// New v0.3.0 structured output
-				context: memory.context || '',
-				messages: chatHistory.slice(-6), // Last 6 messages (recommended by Zep)
-
-				// Backward compatibility alias
 				chat_history: chatHistory,
 			};
 		} catch (error: any) {
-			// If thread doesn't exist, return empty context
-			if (error.status === 404) {
-				this.log('debug', 'Thread not found, returning empty context');
-				return {
-					context: '',
-					messages: [],
-					chat_history: [],
-				};
+			this.log('error', `Error in loadMemoryVariables: ${error.message}`);
+			const status = error.status || error.statusCode || error.response?.status;
+			const message = error.message || '';
+
+			if (status === 404 || message.includes('404') || message.includes('not found')) {
+				return { chat_history: [] };
 			}
 			throw error;
+		}
+	}
+
+	private async ensureThreadExists() {
+		try {
+			// SDK Signature: get(threadId: string)
+			this.log('debug', `Checking thread exists with string: ${this.threadId}`);
+			await this.client.thread.get(this.threadId);
+			this.log('debug', 'Thread exists');
+		} catch (error: any) {
+			const status = error.status || error.statusCode || error.response?.status;
+			const message = error.message || '';
+
+			if (status === 404 || message.includes('404') || message.includes('not found')) {
+				this.log('debug', 'Thread not found, creating user and thread...');
+				try {
+					try {
+						// SDK Signature: user.add(request: object) - CORRECT
+						const userParams = { userId: this.userId };
+						this.log('debug', `Creating user with: ${JSON.stringify(userParams)}`);
+						await this.client.user.add(userParams);
+						this.log('debug', `User ${this.userId} created`);
+					} catch (userError: any) {
+						this.log('debug', `User creation skipped: ${userError.message}`);
+					}
+
+					// SDK Signature: thread.create(request: object) - CORRECT
+					const threadParams = { threadId: this.threadId, userId: this.userId };
+					this.log('debug', `Creating thread with: ${JSON.stringify(threadParams)}`);
+					await this.client.thread.create(threadParams);
+					this.log('debug', 'Thread created successfully');
+				} catch (createError: any) {
+					this.log('debug', `Could not create thread: ${createError.message}`);
+				}
+			}
 		}
 	}
 
@@ -111,16 +272,18 @@ class ZepMemoryWrapper {
 		// Add user message
 		if (inputValues?.input) {
 			messages.push({
-				role: 'human' as const,
+				role: 'user' as const,
 				content: String(inputValues.input),
+				roleType: 'human',
 			});
 		}
 
 		// Add assistant message
 		if (outputValues?.output) {
 			messages.push({
-				role: 'ai' as const,
+				role: 'assistant' as const,
 				content: String(outputValues.output),
+				roleType: 'ai',
 			});
 		}
 
@@ -129,35 +292,62 @@ class ZepMemoryWrapper {
 			return;
 		}
 
+		// DEBUG: Log messages to save
+		this.log('debug', `Messages to save: ${JSON.stringify(messages)}`);
+
 		try {
-			await this.client.thread.addMessages(this.threadId, messages);
+			// SDK Signature: addMessages(threadId, request) - Mixed
+			const params = { messages };
+			this.log('debug', `Calling addMessages with string: ${this.threadId}, object: ${JSON.stringify(params)}`);
+			await this.client.thread.addMessages(this.threadId, params);
 			this.log('debug', `Saved ${messages.length} messages to thread`);
 		} catch (error: any) {
+			this.log('error', `addMessages failed: ${error.message}`);
+
 			// If thread doesn't exist, create it first
-			if (error.status === 404) {
-				this.log('debug', 'Thread not found, creating...');
-				await this.client.thread.create({ threadId: this.threadId });
-				await this.client.thread.addMessages(this.threadId, messages);
-				this.log('debug', 'Thread created and messages saved');
+			const status = error.status || error.statusCode || error.response?.status;
+			const message = error.message || '';
+
+			if (status === 404 || message.includes('404') || message.includes('not found')) {
+				this.log('debug', 'Thread not found, creating user and thread...');
+				try {
+					try {
+						await this.client.user.add({ userId: this.userId });
+					} catch (userError: any) {
+						// User might already exist, ignore
+					}
+
+					await this.client.thread.create({
+						threadId: this.threadId,
+						userId: this.userId
+					});
+
+					// Retry addMessages
+					this.log('debug', 'Retrying addMessages...');
+					await this.client.thread.addMessages(this.threadId, { messages });
+					this.log('debug', 'Thread created and messages saved');
+				} catch (retryError: any) {
+					this.log('error', `Retry failed: ${retryError.message}`);
+					throw retryError;
+				}
 			} else {
 				throw error;
 			}
 		}
 	}
 
-	/**
-	 * Clear memory - deletes the thread
-	 */
 	async clear() {
 		this.log('debug', `Clearing thread: ${this.threadId}`);
 		try {
+			// SDK Signature: delete(threadId: string)
+			this.log('debug', `Calling thread.delete with string: ${this.threadId}`);
 			await this.client.thread.delete(this.threadId);
 			this.log('debug', 'Thread deleted');
 		} catch (error: any) {
 			if (error.status !== 404) {
+				this.log('error', `thread.delete failed: ${error.message}`);
 				throw error;
 			}
-			// Thread already doesn't exist, that's fine
 		}
 	}
 
@@ -222,81 +412,23 @@ export class ZepMemory implements INodeType {
 				type: 'notice',
 				default: '',
 			},
-			// Thread ID for version 1
+			// Thread ID - Manual input (All versions)
 			{
 				displayName: 'Thread ID',
 				name: 'threadId',
 				type: 'string',
+				default: '={{ $json.sessionId }}',
 				required: true,
-				default: '',
-				displayOptions: {
-					show: {
-						'@version': [1],
-					},
-				},
+				description: 'The ID of the conversation thread. Can be a static value or expression (e.g. {{ $json.sessionId }}).',
 			},
-			// Thread ID for version 2
+			// User ID - Manual input (All versions)
 			{
-				displayName: 'Thread ID',
-				name: 'threadId',
+				displayName: 'User ID',
+				name: 'userId',
 				type: 'string',
-				default: '={{ $json.threadId }}',
-				description: 'The thread ID to use to store the memory',
-				displayOptions: {
-					show: {
-						'@version': [2],
-					},
-				},
-			},
-			// Thread ID Type for versions 3+
-			{
-				displayName: 'Thread ID',
-				name: 'threadIdType',
-				type: 'options',
-				options: [
-					{
-						name: 'Connected Chat Trigger Node',
-						value: 'fromInput',
-						description: 'Looks for an input field called "threadId" from a connected Chat Trigger',
-					},
-					{
-						name: 'Define below',
-						value: 'customKey',
-						description: 'Use an expression to reference data in previous nodes or enter static text',
-					},
-				],
-				default: 'fromInput',
-				displayOptions: {
-					show: {
-						'@version': [{ _cnd: { gte: 3 } }],
-					},
-				},
-			},
-			// Thread Key From Previous Node (version 4+)
-			{
-				displayName: 'Thread Key From Previous Node',
-				name: 'threadKey',
-				type: 'string',
-				default: '={{ $json.threadId }}',
-				displayOptions: {
-					show: {
-						threadIdType: ['fromInput'],
-						'@version': [{ _cnd: { gte: 4 } }],
-					},
-				},
-			},
-			// Custom Thread Key
-			{
-				displayName: 'Key',
-				name: 'threadKey',
-				type: 'string',
-				default: '',
-				description: 'The key to use to store thread ID in the memory',
-				displayOptions: {
-					show: {
-						threadIdType: ['customKey'],
-					},
-				},
+				default: '={{ $json.userId }}',
+				required: true,
+				description: 'The ID of the user. Can be a static value or expression. Should be unique per user.',
 			},
 		],
 	};
@@ -325,25 +457,14 @@ export class ZepMemory implements INodeType {
 		const nodeVersion = this.getNode().typeVersion;
 		log('debug', `Node version: ${nodeVersion}`);
 
-		// Get thread ID based on node version
-		let threadId: string;
+		// Get parameters directly (removed legacy version checks for simplicity)
+		const threadId = this.getNodeParameter('threadId', itemIndex, '') as string;
+		let userId = this.getNodeParameter('userId', itemIndex, '') as string;
 
-		if (nodeVersion >= 3) {
-			const threadIdType = this.getNodeParameter('threadIdType', itemIndex) as string;
-			if (threadIdType === 'fromInput') {
-				const threadKey = this.getNodeParameter('threadKey', itemIndex, 'threadId') as string;
-				const inputData = this.getInputData();
-				const currentItem = inputData[itemIndex];
-				threadId = String(currentItem?.json?.[threadKey] || '');
-				log('debug', `Thread ID from input: ${threadId}`);
-			} else {
-				threadId = this.getNodeParameter('threadKey', itemIndex) as string;
-				log('debug', `Thread ID from custom key: ${threadId}`);
-			}
-		} else {
-			threadId = this.getNodeParameter('threadId', itemIndex) as string;
-			log('debug', `Thread ID (legacy): ${threadId}`);
-		}
+		// Fallback: if userId is empty, use threadId
+		if (!userId) userId = threadId;
+
+		log('debug', `Node version: ${nodeVersion}, ThreadID=${threadId}, UserID=${userId}`);
 
 		if (!threadId) {
 			throw new NodeOperationError(
@@ -352,21 +473,31 @@ export class ZepMemory implements INodeType {
 			);
 		}
 
-		log('info', `Using thread ID: ${threadId}`);
+		log('info', `Using thread ID: ${threadId}, user ID: ${userId}`);
 
-		// Initialize Zep Cloud client
-		const ZepClient = ZepCloud.ZepClient || (ZepCloud as any).default || ZepCloud;
-		const client = new ZepClient({
-			apiKey: credentials.apiKey as string,
-		});
+		try {
+			// Initialize Zep Cloud client - using ZepClient constructor
+			log('debug', 'Initializing Zep client...');
 
-		// Create memory wrapper
-		const memory = new ZepMemoryWrapper(client, threadId, this.logger);
+			const client = new ZepClient({
+				apiKey: credentials.apiKey as string,
+			});
+			log('debug', 'Zep client created');
 
-		log('info', 'Zep Memory v3 initialized successfully');
+			// Create memory wrapper with separate userId
+			const memory = new ZepMemoryWrapper(client, threadId, userId, this.logger);
+			log('info', 'Zep Memory v3 initialized successfully');
 
-		return {
-			response: memory,
-		};
+			return {
+				response: memory,
+			};
+		} catch (initError: any) {
+			log('error', `Failed to initialize Zep client: ${initError.message}`);
+			throw new NodeOperationError(
+				this.getNode(),
+				`Failed to initialize Zep Memory: ${initError.message}`,
+				{ description: initError.stack }
+			);
+		}
 	}
 }
