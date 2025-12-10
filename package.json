@@ -1,15 +1,16 @@
 {
   "name": "n8n-nodes-zep-memory-v3",
-  "version": "0.2.3",
-  "description": "n8n community node for Zep v3 Memory - replaces discontinued official node",
+  "version": "0.3.0",
+  "description": "n8n community node for Zep Cloud v3 Memory - AI Agent persistent memory with Context Block",
   "keywords": [
     "n8n-community-node-package",
     "zep",
     "memory",
     "ai",
-    "langchain",
+    "agent",
     "chat",
-    "conversation"
+    "conversation",
+    "context-block"
   ],
   "license": "MIT",
   "homepage": "https://github.com/fabiohsan/n8n-nodes-zep-memory-v3",
@@ -31,9 +32,9 @@
     "build": "tsc && gulp build:icons",
     "dev": "tsc --watch",
     "format": "prettier nodes credentials --write",
-    "lint": "echo 'Lint check passed - build is working correctly'",
-    "lintfix": "eslint nodes credentials package.json --fix",
-    "prepublishOnly": "npm run build && npm run lint -s"
+    "lint": "eslint nodes credentials --ext .ts",
+    "lintfix": "eslint nodes credentials --ext .ts --fix",
+    "prepublishOnly": "npm run build"
   },
   "files": [
     "dist"
@@ -48,27 +49,20 @@
     ]
   },
   "devDependencies": {
-    "@langchain/community": "^0.3.0",
-    "@langchain/core": "^0.3.0",
     "@types/node": "^18.16.16",
     "@typescript-eslint/parser": "^5.45.0",
     "@typescript-eslint/eslint-plugin": "^5.45.0",
     "eslint": "^8.29.0",
     "eslint-plugin-n8n-nodes-base": "^1.11.0",
     "gulp": "^4.0.2",
-    "langchain": "^0.3.0",
     "n8n-workflow": "*",
     "prettier": "^2.7.1",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
-    "@langchain/community": ">=0.3.0",
-    "@langchain/core": ">=0.3.0",
-    "langchain": ">=0.3.0",
     "n8n-workflow": "*"
   },
   "dependencies": {
-    "@getzep/zep-cloud": "^1.0.12",
-    "@getzep/zep-js": "^0.9.0"
+    "@getzep/zep-cloud": "^3.13.0"
   }
 }

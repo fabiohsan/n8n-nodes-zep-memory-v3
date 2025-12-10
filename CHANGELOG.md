@@ -2,81 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.3] - 2024-09-30
+## [0.3.0] - 2025-12-09
+
+### ⚠️ BREAKING CHANGES
+
+- **Removed Open Source Support**: This version only supports Zep Cloud v3
+- **New SDK**: Migrated from `@langchain/community` to `@getzep/zep-cloud` native SDK
+- **Simplified Credentials**: Removed "Cloud" toggle and "API URL" field
 
 ### Added
-- **Enhanced Console Logging**: Added detailed performance logging for memory operations
-- **Operation Tracking**: Log execution time for loadMemoryVariables and saveContext
-- **Memory Statistics**: Log message count and history status for better debugging
 
-### Improved
-- **Debugging Experience**: Better visibility in Docker/console logs without UI complexity
-- **Performance Monitoring**: Track operation duration for optimization insights
+- **Context Block Output**: Returns structured USER_SUMMARY + FACTS from Zep's Knowledge Graph
+- **Auto Thread Creation**: Automatically creates threads if they don't exist
+- **Error Mapping**: User-friendly error messages for 401, 403, 404, 429, 500
+- **Backward Compatibility**: `chat_history` still available as alias
+
+### Changed
+
+- **Output Format**: Now returns `{ context, messages, chat_history }`
+- **Credentials**: Simplified to just API Key (required)
+- **Logging**: Uses `this.logger` exclusively (no more console.log)
+
+### Removed
+
+- Support for Zep Open Source (deprecated by Zep in April 2025)
+- `@langchain/community` dependency
+- Console.log statements
 
 ### Technical Details
-- Added safe console.log statements in BaseChatMemoryWrapper methods
-- Logs include timing, message counts, and operation status
-- Zero risk implementation - no breaking changes
-- Maintains full compatibility with v0.2.2
 
-## [0.2.2] - 2024-09-30
+- Uses `@getzep/zep-cloud` v3.13.0 native SDK
+- Implements `thread.getUserContext()` for Context Block
+- Implements `thread.addMessages()` for saving context
+- Node version 5 added for new implementation
 
-### Changed
-- **Updated Icon**: Replaced SVG icon with new PNG icon for better visual consistency
-
-## [0.2.1] - 2024-09-30
+## [0.2.3] - 2025-09-30
 
 ### Added
-- **Enhanced Logging System**: Robust logging helper with fallback support
-- **Visual Log Messages**: Added emojis and better formatting for improved readability
-- **Debug Information**: More detailed logging for troubleshooting and monitoring
+- Enhanced Console Logging for debugging
+- Performance logging for memory operations
+
+## [0.2.2] - 2025-09-30
 
 ### Changed
-- **Removed logWrapper**: Eliminated complex proxy-based logging for better performance
-- **Improved Error Messages**: More descriptive error messages with actionable guidance
-- **Safer Logging**: Fallback to console.log when this.logger is unavailable
+- Updated icon to PNG format
+- Improved logging system
+
+## [0.2.1] - 2025-09-30
+
+### Added
+- Enhanced logging with fallback support
+- Better error messages
 
 ### Fixed
-- **Logging Reliability**: Prevents crashes when logger is not available in certain environments
-- **Performance**: Reduced overhead by removing proxy wrapper
+- Logging reliability in various environments
 
-### Technical Details
-- Introduced safe logging helper function with try-catch protection
-- Direct memory wrapper usage without proxy overhead
-- Enhanced debugging capabilities for production environments
-
-## [0.2.0] - 2024-09-30
+## [0.2.0] - 2025-09-30
 
 ### Changed
-- **BREAKING**: Simplified logWrapper implementation using native n8n logger
-- Removed complex logWrapper detection logic that was causing performance issues
-- Improved error handling and logging consistency
-- Cleaner, more maintainable codebase
+- Simplified logWrapper implementation
+- Improved error handling
 
 ### Fixed
-- Resolved performance issues with excessive console logging
-- Fixed potential memory leaks from complex proxy implementations
-- Improved stability and reliability
+- Performance issues with excessive logging
+- Potential memory leaks
 
-### Technical Details
-- Replaced complex logWrapper detection with direct `this.logger` usage
-- Simplified proxy implementation for better performance
-- Maintained full compatibility with existing workflows
-- Reduced bundle size and complexity
-
-## [0.1.0] - 2024-09-29
+## [0.1.0] - 2025-09-29
 
 ### Added
-- Initial release of Zep Memory v3 community node
-- Support for both Zep Cloud and Open Source instances
-- Thread-based memory management (v3 terminology)
-- Automatic message filtering (empty message removal)
-- Multiple node versions for backward compatibility
-- Full compatibility with discontinued official node
-
-### Features
-- Thread ID configuration with multiple input methods
-- BaseChatMemoryWrapper for maximum compatibility
-- WhiteSpaceTrimmedZepCloudMemory for message filtering
-- Comprehensive error handling and validation
-- TypeScript implementation with proper type safety
+- Initial release
+- Support for Zep Cloud and Open Source
+- Thread-based memory management
+- Message filtering

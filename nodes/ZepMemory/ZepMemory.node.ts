@@ -4,92 +4,184 @@ import {
 	INodeTypeDescription,
 	SupplyData,
 	NodeOperationError,
-	NodeConnectionType,
 } from 'n8n-workflow';
 
-import { ZepCloudMemory } from '@langchain/community/memory/zep_cloud';
-import { ZepMemory as ZepOpenSourceMemory } from '@langchain/community/memory/zep';
+// Zep Cloud SDK - use namespace import for compatibility
+import * as ZepCloud from '@getzep/zep-cloud';
 
-class WhiteSpaceTrimmedZepCloudMemory extends ZepCloudMemory {
-	async loadMemoryVariables(values: any) {
-		const memoryVariables = await super.loadMemoryVariables(values);
-		memoryVariables.chat_history = memoryVariables.chat_history.filter(
-			(m: any) => m.content.toString().trim()
-		);
-		return memoryVariables;
-	}
+
+/**
+ * Error messages mapping for user-friendly feedback
+ */
+const ERROR_MESSAGES: Record<number, string> = {
+	401: 'Authentication failed. Please check your Zep API Key.',
+	403: 'Access forbidden. Your API Key may not have permission for this operation.',
+	404: 'Thread not found. It will be created automatically.',
+	429: 'Rate limit exceeded. Please wait a moment and try again.',
+	500: 'Zep server error. Please check https://status.getzep.com',
+};
+
+/**
+ * Maps SDK errors to user-friendly messages
+ */
+function mapError(error: any, node: any): NodeOperationError {
+	const status = error.status || error.response?.status;
+	const message = ERROR_MESSAGES[status] || error.message || 'An unexpected error occurred';
+
+	return new NodeOperationError(node, message, {
+		description: `HTTP ${status || 'Unknown'}: ${error.message || 'No details available'}`,
+	});
 }
 
-// MANTIDO: BaseChatMemoryWrapper para compatibilidade máxima
-class BaseChatMemoryWrapper {
-	private memory: any;
+/**
+ * Zep Memory Wrapper - Interfaces with Zep Cloud SDK
+ * Implements the memory interface expected by n8n AI Agents
+ */
+class ZepMemoryWrapper {
+	private client: any; // ZepCloud.ZepClient
+	private threadId: string;
+	private logger?: any;
 
-	constructor(memory: any) {
-		this.memory = memory;
+	constructor(client: any, threadId: string, logger?: any) {
+		this.client = client;
+		this.threadId = threadId;
+		this.logger = logger;
 	}
 
-	async loadMemoryVariables(values: any) {
-		const startTime = Date.now();
-		const response = await this.memory.loadMemoryVariables(values);
-		const duration = Date.now() - startTime;
-		
-		// Logging seguro para visibilidade nos logs do Docker/console
-		console.log(`[Zep Memory v3] loadMemoryVariables completed in ${duration}ms`, {
-			hasHistory: !!response?.chat_history,
-			messageCount: response?.chat_history?.length || 0,
-		});
-		
-		return response;
+	private log(level: 'info' | 'debug' | 'error', message: string, meta?: any) {
+		if (this.logger && typeof this.logger[level] === 'function') {
+			this.logger[level](message, meta);
+		}
 	}
 
+	/**
+	 * Load memory variables - retrieves context from Zep
+	 * Returns structured Context Block with USER_SUMMARY and FACTS
+	 */
+	async loadMemoryVariables(_values: any) {
+		this.log('debug', `Loading memory for thread: ${this.threadId}`);
+
+		try {
+			// Get user context (Context Block with USER_SUMMARY + FACTS)
+			const memory = await this.client.thread.getUserContext(this.threadId);
+
+			// Get recent messages for chat_history compatibility
+			const thread = await this.client.thread.get(this.threadId);
+			const messages = thread.messages || [];
+
+			// Format messages for LangChain compatibility
+			const chatHistory = messages.map((msg: any) => ({
+				role: msg.role === 'human' ? 'user' : msg.role,
+				content: msg.content || '',
+				name: msg.name,
+			})).filter((m: any) => m.content.trim());
+
+			this.log('debug', `Loaded ${chatHistory.length} messages from thread`);
+
+			return {
+				// New v0.3.0 structured output
+				context: memory.context || '',
+				messages: chatHistory.slice(-6), // Last 6 messages (recommended by Zep)
+
+				// Backward compatibility alias
+				chat_history: chatHistory,
+			};
+		} catch (error: any) {
+			// If thread doesn't exist, return empty context
+			if (error.status === 404) {
+				this.log('debug', 'Thread not found, returning empty context');
+				return {
+					context: '',
+					messages: [],
+					chat_history: [],
+				};
+			}
+			throw error;
+		}
+	}
+
+	/**
+	 * Save context - adds messages to Zep thread
+	 */
 	async saveContext(inputValues: any, outputValues: any) {
-		const startTime = Date.now();
-		const response = await this.memory.saveContext(inputValues, outputValues);
-		const duration = Date.now() - startTime;
-		
-		// Logging seguro para visibilidade nos logs do Docker/console
-		console.log(`[Zep Memory v3] saveContext completed in ${duration}ms`, {
-			input: inputValues?.input || 'N/A',
-			output: outputValues?.output || 'N/A',
-		});
-		
-		return response;
+		this.log('debug', `Saving context to thread: ${this.threadId}`);
+
+		const messages = [];
+
+		// Add user message
+		if (inputValues?.input) {
+			messages.push({
+				role: 'human' as const,
+				content: String(inputValues.input),
+			});
+		}
+
+		// Add assistant message
+		if (outputValues?.output) {
+			messages.push({
+				role: 'ai' as const,
+				content: String(outputValues.output),
+			});
+		}
+
+		if (messages.length === 0) {
+			this.log('debug', 'No messages to save');
+			return;
+		}
+
+		try {
+			await this.client.thread.addMessages(this.threadId, messages);
+			this.log('debug', `Saved ${messages.length} messages to thread`);
+		} catch (error: any) {
+			// If thread doesn't exist, create it first
+			if (error.status === 404) {
+				this.log('debug', 'Thread not found, creating...');
+				await this.client.thread.create({ threadId: this.threadId });
+				await this.client.thread.addMessages(this.threadId, messages);
+				this.log('debug', 'Thread created and messages saved');
+			} else {
+				throw error;
+			}
+		}
 	}
 
+	/**
+	 * Clear memory - deletes the thread
+	 */
 	async clear() {
-		console.log('[Zep Memory v3] Clearing memory');
-		const response = await this.memory.clear();
-		console.log('[Zep Memory v3] Memory cleared successfully');
-		return response;
+		this.log('debug', `Clearing thread: ${this.threadId}`);
+		try {
+			await this.client.thread.delete(this.threadId);
+			this.log('debug', 'Thread deleted');
+		} catch (error: any) {
+			if (error.status !== 404) {
+				throw error;
+			}
+			// Thread already doesn't exist, that's fine
+		}
 	}
 
-	get memoryKey() {
-		return this.memory.memoryKey;
-	}
-
-	get returnMessages() {
-		return this.memory.returnMessages;
-	}
-
-	get inputKey() {
-		return this.memory.inputKey;
-	}
-
-	get outputKey() {
-		return this.memory.outputKey;
-	}
+	// Required properties for LangChain compatibility
+	get memoryKey() { return 'chat_history'; }
+	get returnMessages() { return true; }
+	get inputKey() { return 'input'; }
+	get outputKey() { return 'output'; }
 }
 
-
-
+/**
+ * Zep Memory v3 - n8n Community Node
+ * Provides persistent memory for AI Agents using Zep Cloud
+ * 
+ * v0.3.0 - Cloud-only with native SDK
+ */
 export class ZepMemory implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Zep Memory v3',
 		name: 'zepMemoryV3',
 		icon: 'file:zep.png',
 		group: ['transform'],
-		version: [1, 2, 3, 4],
-		description: 'Use Zep Memory v3 for AI agent conversations',
+		version: [1, 2, 3, 4, 5], // v5 = new SDK implementation
+		description: 'Use Zep Cloud v3 for AI agent memory with Context Block',
 		defaults: {
 			name: 'Zep Memory v3',
 		},
@@ -102,7 +194,7 @@ export class ZepMemory implements INodeType {
 			resources: {
 				primaryDocumentation: [
 					{
-						url: 'https://docs.getzep.com',
+						url: 'https://help.getzep.com',
 					},
 				],
 			},
@@ -125,12 +217,12 @@ export class ZepMemory implements INodeType {
 				description: 'Connect this node to an AI Agent node to provide memory functionality',
 			},
 			{
-				displayName: 'Works with Zep Cloud v3 and enhanced context retrieval',
+				displayName: 'Zep Cloud v3 - Context Block with USER_SUMMARY and FACTS',
 				name: 'supportedVersions',
 				type: 'notice',
 				default: '',
 			},
-			// Thread ID para versão 1
+			// Thread ID for version 1
 			{
 				displayName: 'Thread ID',
 				name: 'threadId',
@@ -143,7 +235,7 @@ export class ZepMemory implements INodeType {
 					},
 				},
 			},
-			// Thread ID para versão 1.1
+			// Thread ID for version 2
 			{
 				displayName: 'Thread ID',
 				name: 'threadId',
@@ -156,7 +248,7 @@ export class ZepMemory implements INodeType {
 					},
 				},
 			},
-			// Thread ID Type para versões 1.2+
+			// Thread ID Type for versions 3+
 			{
 				displayName: 'Thread ID',
 				name: 'threadIdType',
@@ -180,7 +272,7 @@ export class ZepMemory implements INodeType {
 					},
 				},
 			},
-			// Thread Key From Previous Node (versão 1.3+)
+			// Thread Key From Previous Node (version 4+)
 			{
 				displayName: 'Thread Key From Previous Node',
 				name: 'threadKey',
@@ -210,32 +302,39 @@ export class ZepMemory implements INodeType {
 	};
 
 	async supplyData(this: ISupplyDataFunctions, itemIndex: number): Promise<SupplyData> {
-		// Helper de logging seguro - funciona mesmo se this.logger não estiver disponível
+		// Logging helper using n8n's logger
 		const log = (level: 'info' | 'debug' | 'error', message: string, meta?: any) => {
-			try {
-				if (this.logger && typeof this.logger[level] === 'function') {
-					this.logger[level](message, meta);
-				}
-			} catch (error) {
-				// Fallback silencioso para console (aparece nos logs do Docker)
-				console.log(`[Zep Memory v3 ${level.toUpperCase()}] ${message}`, meta || '');
+			if (this.logger && typeof this.logger[level] === 'function') {
+				this.logger[level](message, meta);
 			}
 		};
 
-		log('info', '🚀 Zep Memory v3 - Starting initialization');
+		log('info', 'Zep Memory v3 - Initializing');
 
+		// Get credentials
 		const credentials = await this.getCredentials('zepApi');
+
+		if (!credentials.apiKey) {
+			throw new NodeOperationError(
+				this.getNode(),
+				'API Key is required. Please configure your Zep Cloud credentials.'
+			);
+		}
+
+		// Get node version
 		const nodeVersion = this.getNode().typeVersion;
 		log('debug', `Node version: ${nodeVersion}`);
 
+		// Get thread ID based on node version
 		let threadId: string;
 
 		if (nodeVersion >= 3) {
 			const threadIdType = this.getNodeParameter('threadIdType', itemIndex) as string;
 			if (threadIdType === 'fromInput') {
 				const threadKey = this.getNodeParameter('threadKey', itemIndex, 'threadId') as string;
-				const inputData = this.getInputData(itemIndex);
-				threadId = String(inputData?.[0]?.json?.[threadKey] || '');
+				const inputData = this.getInputData();
+				const currentItem = inputData[itemIndex];
+				threadId = String(currentItem?.json?.[threadKey] || '');
 				log('debug', `Thread ID from input: ${threadId}`);
 			} else {
 				threadId = this.getNodeParameter('threadKey', itemIndex) as string;
@@ -247,58 +346,27 @@ export class ZepMemory implements INodeType {
 		}
 
 		if (!threadId) {
-			log('error', '❌ Thread ID is missing');
-			throw new NodeOperationError(this.getNode(),
-				'Thread ID is required. Please provide a valid thread ID.');
+			throw new NodeOperationError(
+				this.getNode(),
+				'Thread ID is required. Please provide a valid thread ID.'
+			);
 		}
 
-		log('info', `✓ Using thread ID: ${threadId}`);
+		log('info', `Using thread ID: ${threadId}`);
 
-		let baseMemory: any;
-		if (credentials.cloud) {
-			if (!credentials.apiKey) {
-				log('error', '❌ API key is missing for Zep Cloud');
-				throw new NodeOperationError(this.getNode(),
-					'API key is required for Zep Cloud');
-			}
-			log('info', '☁️ Initializing Zep Cloud memory');
-			baseMemory = new WhiteSpaceTrimmedZepCloudMemory({
-				sessionId: threadId,
-				apiKey: credentials.apiKey as string,
-				memoryType: 'perpetual',
-				memoryKey: 'chat_history',
-				returnMessages: true,
-				inputKey: 'input',
-				outputKey: 'output',
-				separateMessages: false,
-			});
-		} else {
-			if (!credentials.apiUrl) {
-				log('error', '❌ API URL is missing for Zep Open Source');
-				throw new NodeOperationError(this.getNode(),
-					'API URL is required for Zep Open Source');
-			}
-			log('info', `🔧 Initializing Zep Open Source memory at ${credentials.apiUrl}`);
-			baseMemory = new ZepOpenSourceMemory({
-				sessionId: threadId,
-				baseURL: credentials.apiUrl as string,
-				apiKey: credentials.apiKey as string,
-				memoryKey: 'chat_history',
-				returnMessages: true,
-				inputKey: 'input',
-				outputKey: 'output',
-			});
-		}
+		// Initialize Zep Cloud client
+		const ZepClient = ZepCloud.ZepClient || (ZepCloud as any).default || ZepCloud;
+		const client = new ZepClient({
+			apiKey: credentials.apiKey as string,
+		});
 
-		// Wrapper para compatibilidade - SEM logWrapper customizado
-		const wrappedMemory = new BaseChatMemoryWrapper(baseMemory);
+		// Create memory wrapper
+		const memory = new ZepMemoryWrapper(client, threadId, this.logger);
 
-		log('info', '✅ Zep Memory v3 initialized successfully');
+		log('info', 'Zep Memory v3 initialized successfully');
 
 		return {
-			response: wrappedMemory,
+			response: memory,
 		};
 	}
-
-
 }

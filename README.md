@@ -2,19 +2,20 @@
 
 ![n8n.io - Workflow Automation](https://raw.githubusercontent.com/n8n-io/n8n/master/assets/n8n-logo.png)
 
-This is an n8n community node that provides Zep v3 Memory functionality for AI agents. It replaces the discontinued official Zep Memory node with enhanced v3 features.
+Community node for **Zep Cloud v3** Memory - provides persistent memory for AI Agents with structured Context Block.
+
+> ⚠️ **v0.3.0 Breaking Change**: Open Source support has been removed. This version only supports Zep Cloud v3.
 
 ## Features
 
-- **Thread-based Memory**: Uses Zep v3 thread terminology instead of sessions
-- **Message Filtering**: Automatically filters out empty messages (preserves original functionality)
-- **Cloud & Open Source**: Supports both Zep Cloud and self-hosted Zep instances
-- **Version Compatibility**: Multiple node versions for backward compatibility
+- **Context Block**: Returns structured USER_SUMMARY + FACTS (not just chat history)
+- **Zep Cloud v3**: Uses native SDK for optimal performance
+- **Thread-based Memory**: Uses Zep v3 thread terminology
+- **Auto Thread Creation**: Automatically creates threads if they don't exist
+- **Error Mapping**: User-friendly error messages for common issues (401, 404, 429)
 - **AI Agent Integration**: Direct integration with n8n AI Agent nodes
 
 ## Installation
-
-To install this community node in n8n:
 
 1. Go to **Settings > Community Nodes**
 2. Select **Install**
@@ -22,20 +23,16 @@ To install this community node in n8n:
 4. Agree to the risks of using community nodes
 5. Select **Install**
 
-After installation restart n8n to see the node in the nodes panel.
+After installation, restart n8n to see the node in the nodes panel.
 
 ## Configuration
 
 ### Credentials
 
-1. Create new **Zep API** credentials
-2. For **Zep Cloud**:
-   - Set **Cloud** to `true`
-   - Enter your **API Key**
-3. For **Zep Open Source**:
-   - Set **Cloud** to `false`
-   - Enter your **API URL** (e.g., `http://localhost:8000`)
-   - Enter your **API Key** (if required)
+1. Create a [Zep Cloud account](https://app.getzep.com)
+2. Get your **API Key** from the dashboard
+3. In n8n, create new **Zep Cloud API** credentials
+4. Enter your **API Key**
 
 ### Node Configuration
 
@@ -49,9 +46,9 @@ After installation restart n8n to see the node in the nodes panel.
 2. Connect it between your **Chat Trigger** and **AI Agent** nodes
 3. Configure the **Thread ID** to identify unique conversations
 4. The node will automatically:
-   - Load conversation history for context
+   - Load Context Block (USER_SUMMARY + FACTS) for the AI Agent
    - Save new messages after AI responses
-   - Filter out empty messages
+   - Create threads automatically if they don't exist
 
 ### Example Workflow
 
@@ -59,28 +56,31 @@ After installation restart n8n to see the node in the nodes panel.
 Chat Trigger → Zep Memory v3 → AI Agent → Response
 ```
 
-## Differences from Original Node
+### Output Format
 
-This community node maintains **100% compatibility** with the original discontinued node while adding:
+The node returns:
 
-- **v3 Terminology**: Uses `threadId` instead of `sessionId`
-- **Enhanced Performance**: Leverages Zep v3 improvements
-- **Future-Proof**: Built for long-term maintenance
+```json
+{
+  "context": "<USER_SUMMARY>...</USER_SUMMARY><FACTS>...</FACTS>",
+  "messages": [/* last 6 messages */],
+  "chat_history": [/* all messages - backward compatibility */]
+}
+```
 
-## Migration from Original Node
+## Migration from v0.2.x
 
-To migrate from the discontinued official node:
+If you were using Zep Open Source, you need to migrate to Zep Cloud:
 
-1. Install this community node
-2. Replace **Zep Memory** nodes with **Zep Memory v3**
-3. Update parameter names: `sessionId` → `threadId`
-4. Test your workflows
+1. Create a [Zep Cloud account](https://app.getzep.com)
+2. Update your credentials to use only the API Key
+3. Your existing workflows will continue to work
 
 ## Compatibility
 
 - **n8n version**: 0.190.0 and above
 - **Node.js**: 18.10 and above
-- **Zep**: Cloud v3 and Open Source <= v0.27.2
+- **Zep**: Cloud v3 only (Open Source no longer supported)
 
 ## Support
 
@@ -96,6 +96,6 @@ This is a community-maintained node. For issues:
 
 ## Resources
 
+- [Zep Documentation](https://help.getzep.com)
 - [n8n community nodes documentation](https://docs.n8n.io/integrations/community-nodes/)
-- [Zep Documentation](https://docs.getzep.com)
 - [n8n Documentation](https://docs.n8n.io)
